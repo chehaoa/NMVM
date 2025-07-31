@@ -1,10 +1,10 @@
 from DocumentSet import DocumentSet
 from Model import Model
-
+import os
 
 class NMVM:
 
-    def __init__(self, K, alpha, beta, sigma, kappa, _lambda, iterNum, sampleNum, dataset, wordsInTopicNum, dataDir):
+    def __init__(self, K, alpha, beta, sigma, kappa, _lambda, iterNum, sampleNum, dataset, wordsInTopicNum, dataDir, seed):
         self.K = K
         self.alpha = alpha
         self.beta = beta
@@ -17,22 +17,21 @@ class NMVM:
         self.wordsInTopicNum = wordsInTopicNum
         self.dataDir = dataDir
 
+        self.seed = seed
         self.wordList = []
         self.wordToIdMap = {}
 
     def getDocuments(self):
-        self.documentSet = DocumentSet(self.dataDir + self.dataset, self.wordToIdMap, self.wordList)
-       
+        data_path = self.dataDir + self.dataset
+        if not os.path.exists(data_path):
+            data_path += ".jsonl"
+        self.documentSet = DocumentSet(data_path, self.wordToIdMap, self.wordList)
+
         self.V = self.wordToIdMap.__len__() 
-        
+
 
     def runNMVM(self, sampleNo, outputPath):
-        # ParametersStr = "K" + str(self.K) + "alpha" + str(round(self.alpha, 3)) + "beta" + str(round(self.beta, 3)) + \
-        #                 "sigma" + str(self.sigma) + "kappa" + str(round(self.kappa, 3)) + "_lambda" + str(self._lambda) + \
-        #                 "iterNum" + str(self.iterNum) + "SampleNum" + str(self.sampleNum)
-
-
-        ParametersStr = "K{}alpha{:.4f}beta{:.4f}sigma{:.5f}kappa{:.3}_lambda{:.2f}iterNum{}SampleNum{}".format(
+        ParametersStr = "K{}alpha{:.4f}beta{:.4f}sigma{:.5f}kappa{:.3}_lambda{:.2f}iterNum{}SampleNum{}seed{}".format(
                         self.K,
                         self.alpha,
                         self.beta,
@@ -41,7 +40,9 @@ class NMVM:
                         self._lambda,
                         self.iterNum,
                         self.sampleNum,
+                        self.seed
                     )
         model = Model(self.K, self.V, self.iterNum, self.alpha, self.beta, self.sigma, self.kappa, self._lambda,
-                      self.dataset, ParametersStr, sampleNo, self.wordsInTopicNum)
-        model.run_ICMM_withGMM(self.documentSet, outputPath, self.wordList)
+                      self.dataset, ParametersStr, sampleNo, self.wordsInTopicNum, self.seed)
+        ACC, NMI = model.run_NMVM(self.documentSet, outputPath, self.wordList)
+        return ACC, NMI

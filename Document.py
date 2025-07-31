@@ -2,8 +2,8 @@ class Document:
 
     def __init__(self, text, wordToIdMap, wordList, documentID, embedding):
         self.documentID = documentID
-        self.wordIdArray = []     
-        self.wordFreArray = []    
+        self.wordIdArray = [] 
+        self.wordFreArray = [] 
         self.embedding = embedding
         V = len(wordToIdMap)
         wordFreMap = {}
@@ -21,7 +21,6 @@ class Document:
                 wordFreMap[wId] = 1
             else:
                 wordFreMap[wId] = wordFreMap[wId] + 1
-               
         self.wordNum = wordFreMap.__len__()
         w = 0
         for wfm in wordFreMap:

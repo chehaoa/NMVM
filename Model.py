@@ -4,12 +4,15 @@ import copy
 import math
 import numpy as np
 import sys
-
+import logging
+import pandas as pd
+from tqdm import tqdm
+from utils import cluster_accuracy
 
 class Model:
 
     def __init__(self, K, V, iterNum, alpha, beta, sigma, kappa, _lambda, dataset, ParametersStr, sampleNo,
-                 wordsInTopicNum):
+                 wordsInTopicNum, seed):
         self.K = K
         self.V = V
         self.iterNum = iterNum
@@ -29,60 +32,73 @@ class Model:
 
         self.smallDouble = 1e-150
         self.largeDouble = 1e150
-
+        self.seed = seed
 
         self.large = 1e150
         self.small = 1e-150
 
-    def run_ICMM_withGMM(self, documentSet, outputPath, wordList):
+    def run_NMVM(self, documentSet, outputPath, wordList):
         # The whole number of documents
-        self.D_All = documentSet.D  # document的总数
+        self.D_All = documentSet.D
         # hyper-parameter mu in gmm
         self.mu = documentSet.mean_embedding
 
         # Cluster assignments of each document               (documentID -> clusterID)
-        
         self.z = [-1] * self.D_All
         # The embedding of cluster z                         (clusterID -> cluster embedding)
-        
         self.e_z = [np.zeros_like(self.mu, dtype=np.float64) for _ in range(self.K)]
         # The number of documents in cluster z               (clusterID -> number of documents)
-        
         self.m_z = [0] * self.K
         # The number of words in cluster z                   (clusterID -> number of words)
-        
         self.n_z = [0] * self.K
         # The number of occurrences of word v in cluster z   (n_zv[clusterID][wordID] = number)
-        
         self.n_zv = [[0] * self.V for _ in range(self.K)]
         # different from K, K is clusterID but K_current is clusterNum
-        
         self.K_current = copy.deepcopy(self.K)
         # word list in initialization
-        
         self.word_current = []
 
         self.sigma_k_list = []
 
+        logging.info(f"Begin to initialize")
+        
         self.intialize(documentSet)
+        self.showTempResult(documentSet.labels)
+        logging.info(f"Initialization successful! Begin to Gibbs sampling")
         self.gibbsSampling(documentSet)
         print("\tGibbs sampling successful! Start to saving results.")
         self.output(documentSet, outputPath, wordList)
-        self.check_sigma_k()
+        logging.info(f"Saving successful!")
+        logging.info(f"End of the program")
+        metrics = self.showTempResult(documentSet.labels)
+        ACC = metrics['ACC']
+        NMI = metrics['NMI']
+
+        # self.check_sigma_k()
         print("\tSaving successful!")
+
+        return ACC, NMI
 
     # Get beta0 for current V
     def getBeta0(self):
         return (float(len(list(set(self.word_current)))) * float(self.beta))
+    
+    def showTempResult(self, cluster_label):
+        cluster_pred = pd.Series([self.z[d] for d in range(0, self.D_All)])
+        metrics = cluster_accuracy(cluster_label, cluster_pred)
+        # print(f"\t{stage} stage | Metrics:", metrics)
+        logging.info(f"\tMetrics: {metrics} + K={self.K_current}")
+        return metrics
 
     def intialize(self, documentSet):
         self.alpha0 = self.alpha * self.D_All
         print("\t" + str(self.D_All) + " documents will be analyze. alpha is" + " %.4f." % self.alpha +
               " beta is" + " %.4f." % self.beta + "\n\tsigma is" + " %.5f." % self.sigma +
               " kappa is" + " %.1f." % self.kappa + "\n\tlambda is" + " %.1f." % self._lambda +
+              "\n\tK is" + " %.1f." % self.K +
               "\n\tInitialization.")
 
-        for d in range(0, self.D_All):
+        for d in tqdm(range(0, self.D_All), desc="Initializing"):
             document = documentSet.documents[d]
             for w in range(document.wordNum):
                 wordNo = document.wordIdArray[w]
@@ -92,13 +108,10 @@ class Model:
                 print("Wrong V!")
                 exit(-1)
 
-            
             cluster = self.sampleCluster(-1, document, "Max")
-            # print("cluster={}, current_k={}, docu={}".format(cluster, self.K_current, d))
 
             self.z[d] = cluster
             if cluster == len(self.m_z):
-                
                 self.m_z.append(0)
                 self.n_zv.append([0] * self.V)
                 self.n_z.append(0)
@@ -108,17 +121,30 @@ class Model:
             for w in range(document.wordNum):
                 wordNo = document.wordIdArray[w]
                 wordFre = document.wordFreArray[w]
-                # 更新每个聚类中，每个词的数量
                 self.n_zv[cluster][wordNo] += wordFre
-                # 更新每个聚类中word的数量
                 self.n_z[cluster] += wordFre
 
     def gibbsSampling(self, documentSet):
+        patience = 3
+        no_improve_count = 0
+        last_score = float('-inf')
+
         for i in range(self.iterNum):
             print("\titer is ", i + 1, end="\t")
             print("beta is" + " %f." % self.beta, end='\t')
             print("Kcurrent is" + " %f." % self.K_current, end='\n')
-            for d in range(0, self.D_All):
+            if i != 0:
+                metrics = self.showTempResult(documentSet.labels)
+                current_score = metrics['NMI']
+                if current_score > last_score:
+                    no_improve_count = 0
+                else:
+                    no_improve_count += 1
+                last_score = current_score
+                if no_improve_count >= patience:
+                    break
+
+            for d in tqdm(range(0, self.D_All), desc="Gibbs Sampling"):
                 document = documentSet.documents[d]
                 cluster = self.z[d]
                 self.m_z[cluster] -= 1
@@ -135,11 +161,8 @@ class Model:
                 else:
                     cluster = self.sampleCluster(i, document, "Max")
 
-                # cluster = self.sampleCluster(i, document, "iter")
-
                 self.z[d] = cluster
                 if cluster == len(self.m_z):
-                    
                     self.m_z.append(0)
                     self.n_zv.append([0] * self.V)
                     self.n_z.append(0)
@@ -152,32 +175,28 @@ class Model:
                     self.n_zv[cluster][wordNo] += wordFre
                     self.n_z[cluster] += wordFre
 
+
     def sumNormalization(self, x):
-       
         x = np.array(x)
         norm_x = x / np.sum(x)
         return norm_x
 
-    '''
-    MODE
-    "Max"  Choose cluster with max probability.
-    "Random"  Random choose a cluster accroding to the probability.
-    '''
 
     def sampleCluster(self, _iter, document, MODE):
+
         prob_1 = [float(0.0)] * (self.K + 1)
         overflowCount = [float(0.0)] * (self.K + 1)
-        overflowCount_2 = [float(0.0)] * (self.K + 1)
         prob_2 = [float(0.0)] * (self.K + 1)
         e_index = [float(0.0)] * (self.K + 1)
+        valueOfRule1 = [float(0.0)] * (self.K + 1)
 
         for k in range(self.K):
             if self.m_z[k] == 0:
                 prob_1[k] = 0
                 prob_2[k] = 0
                 continue
-           
-            valueOfRule1 = self.m_z[k] / (self.D_All - 1 + self.alpha0)
+            # dmm
+            valueOfRule1[k] = self.m_z[k] / (self.D_All - 1 + self.alpha0)
             valueOfRule2 = 1.0
             i = 0
             for _, w in enumerate(range(document.wordNum)):
@@ -187,40 +206,26 @@ class Model:
                     if valueOfRule2 < self.smallDouble:
                         overflowCount[k] -= 1
                         valueOfRule2 *= self.largeDouble
-                   
                     valueOfRule2 *= (self.n_zv[k][wordNo] + self.beta + j) / (self.n_z[k] + self.beta0 + i)
                     i += 1
-            prob_1[k] = valueOfRule1 * valueOfRule2
+            prob_1[k] = valueOfRule1[k] * valueOfRule2
 
-           
-            valueOfRule1 = self.m_z[k] / (self.D_All - 1 + self.alpha0)
+            # gmm
             x = document.embedding
-
             sigma0 = self.sigma / self.kappa
-
             mu_k = (self.sigma * self.mu + sigma0 * self.e_z[k]) \
                    / (self.sigma + self.m_z[k] * sigma0)
             sigma_k = self.sigma + (self.sigma * sigma0) / (self.m_z[k] * sigma0 + self.sigma)
-            
-            self.sigma_k_list.append(sigma_k)
-
             x_sub_mu = np.array(x) - np.array(mu_k)
-            e_index[k] = -0.5 * np.dot(x_sub_mu, x_sub_mu) / sigma_k
-            valueOfRule2_den = 1.0
+            distance_squared = np.dot(x_sub_mu, x_sub_mu)
 
-           
-            if len(x) % 2 == 1:
-                valueOfRule2_den /= math.pow(sigma_k, 0.5)
-            for _ in range(len(x) // 2):
-                if valueOfRule2_den > self.large:
-                    overflowCount_2[k] -= 1
-                    valueOfRule2_den *= self.small
-                valueOfRule2_den /= sigma_k
-            prob_2[k] = valueOfRule1 * valueOfRule2_den
+            d = len(x)
+            e_index[k] = -0.5 * (d * math.log(2 * math.pi * sigma_k) + distance_squared / sigma_k)
 
-        
-        
-        valueOfRule1 = self.alpha0 / (self.D_All - 1 + self.alpha0)
+        '''==============================================================================='''
+        '''the prob of new cluster'''
+        # dmm
+        valueOfRule1[self.K] = self.alpha0 / (self.D_All - 1 + self.alpha0)
         valueOfRule2 = 1.0
         i = 0
         for _, w in enumerate(range(document.wordNum)):
@@ -231,64 +236,40 @@ class Model:
                     valueOfRule2 *= self.largeDouble
                 valueOfRule2 *= (self.beta + j) / (self.beta0 + i)
                 i += 1
-        prob_1[self.K] = valueOfRule1 * valueOfRule2
+        prob_1[self.K] = valueOfRule1[self.K] * valueOfRule2
         
-        valueOfRule1 = self.alpha0 / (self.D_All - 1 + self.alpha0)
+        # gmm
         x = document.embedding
         sigma0 = self.sigma / self.kappa
         mu_k = self.mu
         sigma_k = self.sigma + sigma0
         x_sub_mu = np.array(x) - np.array(mu_k)
-        e_index[self.K] = -0.5 * np.dot(x_sub_mu, x_sub_mu) / sigma_k
-        valueOfRule2_den = 1.0
-        
-        if len(x) % 2 == 1:
-            valueOfRule2_den /= math.pow(sigma_k, 0.5)
-        for _ in range(len(x) // 2):
-            if valueOfRule2_den > self.large:
-                overflowCount_2[self.K] -= 1
-                valueOfRule2_den *= self.small
-            valueOfRule2_den /= sigma_k
-       
-        prob_2[self.K] = valueOfRule1 * valueOfRule2_den
+        distance_squared = np.dot(x_sub_mu, x_sub_mu)
+
+        d = len(x) 
+        e_index[self.K] = -0.5 * (d * math.log(2 * math.pi * sigma_k) + distance_squared / sigma_k)
+
 
         max_overflow = -sys.maxsize
-        max_index = -sys.maxsize
-
-        min_overflow = sys.maxsize
         for k in range(self.K + 1):
             if overflowCount[k] > max_overflow and prob_1[k] > 0.0:
                 max_overflow = overflowCount[k]
 
-            if overflowCount_2[k] < min_overflow and prob_2[k] > 0.0:
-                min_overflow = overflowCount_2[k]
-            if e_index[k] > max_index and prob_2[k] > 0.0:
-                max_index = e_index[k]
-
-
+        e_index = np.array(e_index)
+        max_index = max(e_index[e_index!=0.0])
         for k in range(self.K + 1):
-           
             if prob_1[k] > 0.0:
                 prob_1[k] = prob_1[k] * math.pow(self.largeDouble, overflowCount[k] - max_overflow)
+                prob_2[k] = valueOfRule1[k] * math.exp(e_index[k] - max_index)
 
-            if prob_2[k] > 0.0:
-                # print(overflowCount_2[k])
-                # print(min_overflow)
-                # print(prob_2[k])
-                # print(overflowCount_2[k])
-                # print(min_overflow)
-                prob_2[k] = prob_2[k] * math.pow(self.small, overflowCount_2[k] - min_overflow)
-                prob_2[k] = prob_2[k] * math.exp(e_index[k] - max_index)
 
         prob = [float(0.0)] * (self.K + 1)
-        
-        prob_1 = self.sumNormalization(prob_1) 
-        prob_2 = self.sumNormalization(prob_2)  
+        prob_1 = self.sumNormalization(prob_1)  # dmm
+        prob_2 = self.sumNormalization(prob_2)  # gmm
 
         # weighted sum
         for i in range(self.K + 1):
             prob[i] = prob_1[i] * self._lambda + prob_2[i] * (1 - self._lambda)
-        
 
         if MODE == "Random":
             kChoosed = 0
@@ -321,12 +302,12 @@ class Model:
         mean = np.mean(self.sigma_k_list)
         var = np.var(self.sigma_k_list)
     def checkEmpty(self, cluster):
-        
+
         if self.m_z[cluster] == 0:
             self.K_current -= 1
 
     def output(self, documentSet, outputPath, wordList):
-        
+
         outputDir = outputPath + self.dataset + self.ParametersStr + "/"
         try:
             # create result/
@@ -350,14 +331,14 @@ class Model:
         self.outputSizeOfEachCluster(outputDir, documentSet)
 
     def estimatePosterior(self):  # φ
-        self.phi_zv = [[0] * self.V for _ in range(self.K)]  # k * v维数组
+        self.phi_zv = [[0] * self.V for _ in range(self.K)]
         for cluster in range(self.K):
             for v in range(self.V):
                 self.phi_zv[cluster][v] = float(self.n_zv[cluster][v] + self.beta) / float(
                     self.n_z[cluster] + self.beta0)
 
     def getTop(self, array, rankList, Cnt):
-        
+
         index = 0
         m = 0
         while m < Cnt and m < len(array):
@@ -370,7 +351,7 @@ class Model:
             m += 1
 
     def outputPhiWordsInTopics(self, outputDir, wordList, Cnt):
-        
+
         outputfiledir = outputDir + str(self.dataset) + "SampleNo" + str(self.sampleNo) + "PhiWordsInTopics.txt"
         writer = open(outputfiledir, 'w')
         for k in range(self.K):
@@ -386,7 +367,7 @@ class Model:
         writer.close()
 
     def outputSizeOfEachCluster(self, outputDir, documentSet):
-        
+
         outputfile = outputDir + str(self.dataset) + "SampleNo" + str(self.sampleNo) + "SizeOfEachCluster.txt"
         writer = open(outputfile, 'w')
         topicCountIntList = []
@@ -405,7 +386,7 @@ class Model:
         writer.close()
 
     def outputClusteringResult(self, outputDir, documentSet):
-        
+
         outputPath = outputDir + str(self.dataset) + "SampleNo" + str(self.sampleNo) + "ClusteringResult" + ".txt"
         writer = open(outputPath, 'w')
         for d in range(0, self.D_All):
