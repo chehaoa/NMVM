@@ -1,0 +1,37 @@
+cff-version: 1.2.0
+type: software
+message: "If you use NMVM in your research, please cite the paper listed in preferred-citation."
+title: "NMVM: A Non-parametric Multi-view Model for Short Text Clustering"
+authors:
+  - name: "NMVM contributors"
+repository-code: "https://github.com/chehaoa/NMVM"
+url: "https://github.com/chehaoa/NMVM"
+preferred-citation:
+  type: conference-paper
+  authors:
+    - family-names: Cheng
+      given-names: Enhao
+    - family-names: Zheng
+      given-names: Xiaolong
+    - family-names: Li
+      given-names: Jintong
+    - family-names: Hou
+      given-names: Juncheng
+    - family-names: Liu
+      given-names: Fan
+    - family-names: Song
+      given-names: Xuemeng
+    - family-names: Gan
+      given-names: Tian
+    - family-names: Yin
+      given-names: Jianhua
+  title: "A Non-parametric Multi-view Model for Short Text Clustering"
+  collection-title: "Proceedings of the 32nd ACM SIGKDD Conference on Knowledge Discovery and Data Mining V.2"
+  year: 2026
+  month: 8
+  start: 532
+  end: 543
+  publisher:
+    name: "ACM"
+  doi: "10.1145/3770855.3817827"
+  url: "https://doi.org/10.1145/3770855.3817827"

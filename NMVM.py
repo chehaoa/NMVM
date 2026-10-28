@@ -22,7 +22,7 @@ class NMVM:
         self.wordToIdMap = {}
 
     def getDocuments(self):
-        data_path = self.dataDir + self.dataset
+        data_path = os.path.join(self.dataDir, self.dataset)
         if not os.path.exists(data_path):
             data_path += ".jsonl"
         self.documentSet = DocumentSet(data_path, self.wordToIdMap, self.wordList)

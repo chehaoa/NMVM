@@ -125,24 +125,11 @@ class Model:
                 self.n_z[cluster] += wordFre
 
     def gibbsSampling(self, documentSet):
-        patience = 3
-        no_improve_count = 0
-        last_score = float('-inf')
-
+        """Run exactly iterNum sweeps; ground-truth metrics are evaluation only."""
         for i in range(self.iterNum):
             print("\titer is ", i + 1, end="\t")
             print("beta is" + " %f." % self.beta, end='\t')
             print("Kcurrent is" + " %f." % self.K_current, end='\n')
-            if i != 0:
-                metrics = self.showTempResult(documentSet.labels)
-                current_score = metrics['NMI']
-                if current_score > last_score:
-                    no_improve_count = 0
-                else:
-                    no_improve_count += 1
-                last_score = current_score
-                if no_improve_count >= patience:
-                    break
 
             for d in tqdm(range(0, self.D_All), desc="Gibbs Sampling"):
                 document = documentSet.documents[d]
@@ -156,10 +143,7 @@ class Model:
                     self.n_z[cluster] -= wordFre
                 self.checkEmpty(cluster)
 
-                if i != self.iterNum - 1:
-                    cluster = self.sampleCluster(i, document, "Max")
-                else:
-                    cluster = self.sampleCluster(i, document, "Max")
+                cluster = self.sampleCluster(i, document, "Max")
 
                 self.z[d] = cluster
                 if cluster == len(self.m_z):
@@ -308,20 +292,8 @@ class Model:
 
     def output(self, documentSet, outputPath, wordList):
 
-        outputDir = outputPath + self.dataset + self.ParametersStr + "/"
-        try:
-            # create result/
-            isExists = os.path.exists(outputPath)
-            if not isExists:
-                os.mkdir(outputPath)
-                print("\tCreate directory:", outputPath)
-            # create after result
-            isExists = os.path.exists(outputDir)
-            if not isExists:
-                os.mkdir(outputDir)
-                print("\tCreate directory:", outputDir)
-        except:
-            print("ERROR: Failed to create directory:", outputDir)
+        outputDir = os.path.join(outputPath, self.dataset + self.ParametersStr, "")
+        os.makedirs(outputDir, exist_ok=True)
         self.outputClusteringResult(outputDir, documentSet)
         self.estimatePosterior()
         try:
