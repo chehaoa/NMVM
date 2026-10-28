@@ -14,7 +14,7 @@ class DocumentSet:
 
         self.labels = []
 
-        with open(dataDir) as input:
+        with open(dataDir, encoding="utf-8") as input:
             all_lines = input.readlines()
 
         random.shuffle(all_lines)
@@ -30,7 +30,7 @@ class DocumentSet:
                 self.mean_embedding += embedding
                 document = Document(text, wordToIdMap, wordList, self.D, embedding)
                 self.documents.append(document)
-                if "News" in dataDir or "Tweet" in dataDir:
+                if 'clusterNo' in obj:
                     self.labels.append(int(obj['clusterNo']) - 1)
                 else:
                     self.labels.append(int(obj['cluster_id']) - 1)
